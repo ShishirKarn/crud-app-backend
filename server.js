@@ -2,16 +2,64 @@ const express = require('express');
 const cors = require('cors');
 const db = require('./db');
 const admin = require("firebase-admin");
+const cron = require('node-cron');
 require('dotenv').config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+let serviceAccount;
+
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+  const fixed = raw.replace(/\\n/g, '\n'); 
+
+  serviceAccount = JSON.parse(fixed);
+} else {
+  serviceAccount = require('./serviceAccountKey.json');
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
+});
+
+
+// notification helper
+async function sendToToken(token, title, body) {
+  if (!token) return;
+  try {
+    await admin.messaging().send({
+      token,
+      notification: { title, body },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'leave_channel',
+          sound: 'default',
+        }
+      }
+    });
+  } catch (e) {
+    console.log('FCM Error:', e.message);
+  }
+}
+
+// Daily moring reminder
+cron.schedule('0 13 * * *',()=>{
+  db.query('SELECT firstName, fcm_token FROM users WHERE fcm_token IS NOT NULL',
+    async(err,users)=>{
+      if(err) return;
+      for(const user of users){
+        await sendToToken(
+          user.fcm_token,
+          `Good Morning, ${user.firstName}! ☀️`,
+          'Have a productive day at Office!'
+        );
+      }
+    }
+  );
 });
 
 
@@ -39,6 +87,7 @@ app.post('/login', (req, res) => {
     [email, password], (err, result) => {
       if (err) return res.status(500).json({ message: err.message });
       if (result.length > 0) {
+        db.query('UPDATE users SET last_login=NOW() WHERE id=?', [result[0].id]);
         res.json(result[0]);
       } else {
         res.status(401).json({ message: 'Invalid credentials' });
@@ -48,7 +97,6 @@ app.post('/login', (req, res) => {
 });
 
 // save token
-// Replace your /save-token route with this:
 app.post('/save-token', async (req, res) => {
   const { userId, token } = req.body;
 
@@ -194,4 +242,12 @@ app.delete('/user/:id', (req, res) => {
 // starting server
 app.listen(process.env.PORT || 3000, () => {
   console.log(`Server running on port ${process.env.PORT || 3000}`);
+});
+
+
+console.log("ENV CHECK:", {
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  db: process.env.DB_NAME,
+  port: process.env.DB_PORT
 });
