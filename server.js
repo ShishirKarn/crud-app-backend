@@ -37,7 +37,7 @@ async function sendToToken(token, title, body) {
 }
 
 // Daily moring reminder
-cron.schedule('*/1 13 * * *',()=>{
+cron.schedule('* * * * *',()=>{
   db.query('SELECT firstName, fcm_token FROM users WHERE fcm_token IS NOT NULL',
     async(err,users)=>{
       if(err) return;
