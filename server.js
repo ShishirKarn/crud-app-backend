@@ -9,17 +9,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-let serviceAccount;
-
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-
-  const fixed = raw.replace(/\\n/g, '\n'); 
-
-  serviceAccount = JSON.parse(fixed);
-} else {
-  serviceAccount = require('./serviceAccountKey.json');
-}
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
