@@ -37,14 +37,14 @@ async function sendToToken(token, title, body) {
 }
 
 // Daily moring reminder
-cron.schedule('* * * * *',()=>{
+cron.schedule('10 12 * * *',()=>{
   db.query('SELECT firstName, fcm_token FROM users WHERE fcm_token IS NOT NULL',
     async(err,users)=>{
       if(err) return;
       for(const user of users){
         await sendToToken(
           user.fcm_token,
-          `Good Morning, ${user.firstName}! ☀️`,
+          `Good Afternoon, ${user.firstName}! ☀️`,
           'Have a productive day at Office!'
         );
       }
