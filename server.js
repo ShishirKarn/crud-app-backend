@@ -66,15 +66,29 @@ app.post('/register', (req, res) => {
 // Login — returns user including role
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
-  db.query('SELECT * FROM users WHERE email=? AND password=?', [email, password], (err, result) => {
-    if (err) return res.status(500).json({ message: err.message });
-    if (result.length > 0) {
-      db.query('UPDATE users SET last_login=NOW() WHERE id=?', [result[0].id]);
-      res.json(result[0]);
-    } else {
-      res.status(401).json({ message: 'Invalid credentials' });
+
+  db.query(
+    'SELECT * FROM users WHERE email=? AND password=?',
+    [email, password],
+    (err, result) => {
+      if (err) return res.status(500).json({ message: err.message });
+
+      if (result.length > 0) {
+        const user = result[0];
+
+        db.query('UPDATE users SET last_login=NOW() WHERE id=?', [user.id]);
+
+        // ✅ normalize role (IMPORTANT)
+        user.role = (user.role || 'user').toString().trim().toLowerCase();
+
+        console.log("✅ LOGIN USER:", user.email, "| ROLE:", user.role);
+
+        res.json(user);
+      } else {
+        res.status(401).json({ message: 'Invalid credentials' });
+      }
     }
-  });
+  );
 });
 
 // Save FCM token — also sends welcome notification
@@ -146,11 +160,26 @@ app.post('/leave/apply', (req, res) => {
 
 // Get leaves for a specific user
 app.get('/leave/user/:userId', (req, res) => {
+  const userId = parseInt(req.params.userId);
+
+  console.log("➡️ /leave/user called with:", userId);
+
+  // 🛑 guard against bad input
+  if (!userId || isNaN(userId)) {
+    console.log("❌ Invalid userId");
+    return res.status(400).json({ message: 'Invalid userId' });
+  }
+
   db.query(
     'SELECT * FROM leaves WHERE userId=? ORDER BY createdAt DESC',
-    [req.params.userId],
+    [userId],
     (err, result) => {
-      if (err) return res.status(500).json({ message: err.message });
+      if (err) {
+        console.log("❌ DB ERROR:", err);
+        return res.status(500).json({ message: err.message });
+      }
+
+      console.log("✅ Leaves found:", result.length);
       res.json(result);
     }
   );
@@ -217,17 +246,25 @@ app.put('/leave/:leaveId/status', async (req, res) => {
   });
 });
 
-  // Get pending leave count (admin badge)
-  app.get('/leave/pending-count', (req, res) => {
-    db.query("SELECT COUNT(*) AS count FROM leaves WHERE status='Pending'", (err, result) => {
-      if (err) return res.status(500).json({ message: err.message });
-      res.json({ count: result[0].count });
-    });
+// Get pending leave count (admin badge)
+app.get('/leave/pending-count', (req, res) => {
+  db.query("SELECT COUNT(*) AS count FROM leaves WHERE status='Pending'", (err, result) => {
+    if (err) return res.status(500).json({ message: err.message });
+    res.json({ count: result[0].count });
   });
+});
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  START
-  // ═══════════════════════════════════════════════════════════════════════════
-  app.listen(process.env.PORT || 3000, () => {
-    console.log(`Server running on port ${process.env.PORT || 3000}`);
-  });
+// ═══════════════════════════════════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════════════════════════════════
+app.listen(process.env.PORT || 3000, () => {
+  console.log(`Server running on port ${process.env.PORT || 3000}`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('🔥 Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('🔥 Unhandled Rejection:', err);
+});
