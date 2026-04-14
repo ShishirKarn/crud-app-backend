@@ -33,13 +33,14 @@ router.post('/upload-profile', upload.single('image'), async (req, res) => {
 // this is for saving the image url to database
 router.post('/save-profile-image', async (req, res) => {
   const { userId, imageUrl } = req.body;
-try{
-  await db.query(
-    'UPDATE users SET profile_image = ? WHERE id = ?',
-    [imageUrl, userId]
-  );
-  res.json({ success: true });}
-  catch(e){
+  try {
+    await db.query(
+      'UPDATE users SET profile_image = ? WHERE id = ?',
+      [imageUrl, userId]
+    );
+    res.json({ success: true });
+  }
+  catch (e) {
     res.status(500).json({ message: e.message });
   }
 });
@@ -61,7 +62,9 @@ const mailer = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
   secure: false,
-  family: 4,
+  tls: {
+    family: 4,
+  },
   auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
 });
 
