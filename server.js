@@ -3,19 +3,25 @@ const cors = require('cors');
 const db = require('./db');
 const admin = require('firebase-admin');
 const cron = require('node-cron');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ── Firebase Admin ──────────────────────────────────────────────────────────
+// ── Firebase ────────────────────────────────────────────────────────────────
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
-
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
-// ── FCM helper ──────────────────────────────────────────────────────────────
+// ── Nodemailer (Gmail) ───────────────────────────────────────────────────────
+const mailer = nodemailer.createTransport({
+  service: 'gmail',
+  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+});
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 async function sendToToken(token, title, body) {
   if (!token) return;
   try {
@@ -25,21 +31,163 @@ async function sendToToken(token, title, body) {
       android: { priority: 'high', notification: { channelId: 'leave_channel', sound: 'default' } },
     });
     console.log('FCM sent:', title);
-  } catch (e) {
-    console.log('FCM Error:', e.message);
-  }
+  } catch (e) { console.log('FCM Error:', e.message); }
 }
 
-// ── Cron: Daily afternoon reminder ──────────────────────────────────────────
+function generateOtp() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function sendOtpEmail(email, otp, type) {
+  const isReset = type === 'forgot_password';
+  const subject = isReset ? 'WorkSpace — Password Reset OTP' : 'WorkSpace — Verify Your Email';
+  const heading = isReset ? 'Reset Your Password' : 'Verify Your Email';
+  const subtext = isReset
+    ? 'Use this OTP to reset your password.'
+    : 'Use this OTP to verify your email address.';
+
+  await mailer.sendMail({
+    from: `"WorkSpace" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#1A1A24;border-radius:16px;border:1px solid #2A2A38">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:24px">
+          <div style="width:36px;height:36px;background:#33E8C97A;border-radius:10px;display:flex;align-items:center;justify-content:center">
+            <span style="font-size:18px">⚡</span>
+          </div>
+          <span style="color:#E8C97A;font-size:18px;font-weight:800;letter-spacing:-0.3px">WorkSpace</span>
+        </div>
+        <h2 style="color:#F0EDE6;font-size:22px;font-weight:700;margin:0 0 8px">${heading}</h2>
+        <p style="color:#6B6880;font-size:14px;margin:0 0 28px">${subtext}</p>
+        <div style="background:#111118;border:1px solid #2A2A38;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px">
+          <p style="color:#6B6880;font-size:12px;margin:0 0 10px;letter-spacing:1px;text-transform:uppercase">Your OTP</p>
+          <span style="color:#E8C97A;font-size:40px;font-weight:900;letter-spacing:12px">${otp}</span>
+        </div>
+        <p style="color:#6B6880;font-size:12px;text-align:center;margin:0">This code expires in <strong style="color:#F0EDE6">10 minutes</strong>. Do not share it with anyone.</p>
+        <div style="border-top:1px solid #2A2A38;margin-top:24px;padding-top:16px;text-align:center">
+          <span style="color:#2A2A38;font-size:11px">© ${new Date().getFullYear()} WorkSpace</span>
+        </div>
+      </div>
+    `,
+  });
+}
+
+// ── Cron Jobs ────────────────────────────────────────────────────────────────
 cron.schedule('0 9 * * *', () => {
   db.query('SELECT firstName, fcm_token FROM users WHERE fcm_token IS NOT NULL AND role="user"',
     async (err, users) => {
       if (err) return;
-      for (const user of users) {
-        await sendToToken(user.fcm_token,
-          `Good morning, ${user.firstName}! 💼`,
-          'Have a productive day at WorkSpace.');
+      for (const u of users) await sendToToken(u.fcm_token, `Good morning, ${u.firstName}! 💼`, 'Have a productive day at WorkSpace.');
+    });
+});
+
+cron.schedule('0 8 * * *', () => {
+  const t = new Date();
+  db.query(`SELECT firstName, fcm_token FROM users WHERE MONTH(dateOfBirth)=? AND DAY(dateOfBirth)=? AND fcm_token IS NOT NULL`,
+    [t.getMonth() + 1, t.getDate()],
+    async (err, users) => {
+      if (err) return;
+      for (const u of users) await sendToToken(u.fcm_token, `🎂 Happy Birthday, ${u.firstName}!`, 'Wishing you a wonderful day from the WorkSpace team!');
+    });
+});
+
+cron.schedule('5 8 * * *', () => {
+  const t = new Date();
+  db.query(`SELECT firstName, fcm_token, YEAR(CURDATE())-YEAR(dateOfJoining) AS years FROM users WHERE MONTH(dateOfJoining)=? AND DAY(dateOfJoining)=? AND fcm_token IS NOT NULL`,
+    [t.getMonth() + 1, t.getDate()],
+    async (err, users) => {
+      if (err) return;
+      for (const u of users) {
+        if (u.years < 1) continue;
+        await sendToToken(u.fcm_token, `🎉 Work Anniversary!`, `Congrats ${u.firstName}! Today marks your ${u.years} year${u.years > 1 ? 's' : ''} at WorkSpace!`);
       }
+    });
+});
+
+cron.schedule('0 17 * * 5', () => {
+  db.query('SELECT firstName, fcm_token FROM users WHERE fcm_token IS NOT NULL AND role="user"',
+    async (err, users) => {
+      if (err) return;
+      for (const u of users) await sendToToken(u.fcm_token, `It's Friday, ${u.firstName}! 🎉`, 'Great work this week. Enjoy your weekend!');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  OTP
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Send OTP — type: 'verify_email' | 'forgot_password'
+app.post('/send-otp', async (req, res) => {
+  const { email, type } = req.body;
+  if (!email || !type) return res.status(400).json({ message: 'Email and type required' });
+
+  // For forgot_password: check user exists
+  if (type === 'forgot_password') {
+    const [users] = await db.promise().query('SELECT id FROM users WHERE email=?', [email]).catch(() => [[]]);
+    if (!users || users.length === 0) return res.status(404).json({ message: 'No account found with this email' });
+  }
+
+  const otp = generateOtp();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+
+  // Delete old OTPs for this email+type
+  db.query('DELETE FROM otps WHERE email=? AND type=?', [email, type]);
+
+  db.query('INSERT INTO otps (email, otp, type, expiresAt) VALUES (?,?,?,?)',
+    [email, otp, type, expiresAt],
+    async (err) => {
+      if (err) return res.status(500).json({ message: err.message });
+      try {
+        await sendOtpEmail(email, otp, type);
+        res.json({ message: 'OTP sent' });
+      } catch (e) {
+        console.log('Email error:', e.message);
+        res.status(500).json({ message: 'Failed to send email. Check EMAIL_USER/EMAIL_PASS in .env' });
+      }
+    }
+  );
+});
+
+// Verify OTP
+app.post('/verify-otp', (req, res) => {
+  const { email, otp, type } = req.body;
+  db.query(
+    'SELECT * FROM otps WHERE email=? AND otp=? AND type=? AND expiresAt > NOW() ORDER BY createdAt DESC LIMIT 1',
+    [email, otp, type],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: err.message });
+      if (!rows || rows.length === 0) return res.status(400).json({ message: 'Invalid or expired OTP' });
+
+      // Mark as verified (for forgot_password flow)
+      db.query('UPDATE otps SET verified=1 WHERE id=?', [rows[0].id]);
+
+      // If verifying email, update user
+      if (type === 'verify_email') {
+        db.query('UPDATE users SET isVerified=1 WHERE email=?', [email]);
+      }
+
+      res.json({ message: 'OTP verified' });
+    }
+  );
+});
+
+// Reset password (after OTP verified)
+app.post('/reset-password', (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  db.query(
+    'SELECT * FROM otps WHERE email=? AND otp=? AND type="forgot_password" AND verified=1 AND expiresAt > NOW() ORDER BY createdAt DESC LIMIT 1',
+    [email, otp],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: err.message });
+      if (!rows || rows.length === 0) return res.status(400).json({ message: 'OTP not verified or expired. Please start over.' });
+
+      db.query('UPDATE users SET password=? WHERE email=?', [newPassword, email], (err2) => {
+        if (err2) return res.status(500).json({ message: err2.message });
+        // Clean up OTPs
+        db.query('DELETE FROM otps WHERE email=? AND type="forgot_password"', [email]);
+        res.json({ message: 'Password reset successfully' });
+      });
     }
   );
 });
@@ -48,11 +196,10 @@ cron.schedule('0 9 * * *', () => {
 //  AUTH
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Register
 app.post('/register', (req, res) => {
   const data = req.body;
-  // Default role to 'user' — admin accounts are set manually in DB
   if (!data.role) data.role = 'user';
+  data.isVerified = 0; // require email verification
 
   db.query('INSERT INTO users SET ?', data, (err) => {
     if (err) {
@@ -63,35 +210,19 @@ app.post('/register', (req, res) => {
   });
 });
 
-// Login — returns user including role
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
-
-  db.query(
-    'SELECT * FROM users WHERE email=? AND password=?',
-    [email, password],
-    (err, result) => {
-      if (err) return res.status(500).json({ message: err.message });
-
-      if (result.length > 0) {
-        const user = result[0];
-
-        db.query('UPDATE users SET last_login=NOW() WHERE id=?', [user.id]);
-
-        // ✅ normalize role (IMPORTANT)
-        user.role = (user.role || 'user').toString().trim().toLowerCase();
-
-        console.log("✅ LOGIN USER:", user.email, "| ROLE:", user.role);
-
-        res.json(user);
-      } else {
-        res.status(401).json({ message: 'Invalid credentials' });
-      }
+  db.query('SELECT * FROM users WHERE email=? AND password=?', [email, password], (err, result) => {
+    if (err) return res.status(500).json({ message: err.message });
+    if (result.length > 0) {
+      db.query('UPDATE users SET last_login=NOW() WHERE id=?', [result[0].id]);
+      res.json(result[0]);
+    } else {
+      res.status(401).json({ message: 'Invalid credentials' });
     }
-  );
+  });
 });
 
-// Save FCM token — also sends welcome notification
 app.post('/save-token', async (req, res) => {
   const { userId, token } = req.body;
   db.query('UPDATE users SET fcm_token=? WHERE id=?', [token, userId], async (err) => {
@@ -111,7 +242,6 @@ app.post('/save-token', async (req, res) => {
 //  USER
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Get user
 app.get('/user/:id', (req, res) => {
   db.query('SELECT * FROM users WHERE id=?', [req.params.id], (err, result) => {
     if (err) return res.status(500).json({ message: err.message });
@@ -120,7 +250,6 @@ app.get('/user/:id', (req, res) => {
   });
 });
 
-// Update user
 app.put('/user/:id', (req, res) => {
   const { firstName, lastName, email, mobileNumber, emergencyContact, gender, dateOfBirth, dateOfJoining } = req.body;
   db.query(
@@ -133,7 +262,6 @@ app.put('/user/:id', (req, res) => {
   );
 });
 
-// Delete user
 app.delete('/user/:id', (req, res) => {
   db.query('DELETE FROM users WHERE id=?', [req.params.id], (err) => {
     if (err) return res.status(500).json({ message: err.message });
@@ -141,112 +269,90 @@ app.delete('/user/:id', (req, res) => {
   });
 });
 
+// Get all users (admin)
+app.get('/users', (req, res) => {
+  db.query('SELECT id, firstName, lastName, email, employeeCode, role, isVerified, createdAt FROM users ORDER BY createdAt DESC',
+    (err, result) => {
+      if (err) return res.status(500).json({ message: err.message });
+      res.json(result);
+    });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  LEAVES
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Apply for leave
 app.post('/leave/apply', (req, res) => {
   const { userId, leaveType, fromDate, toDate, halfDay, reason, contact, days } = req.body;
   db.query(
     `INSERT INTO leaves (userId, leaveType, fromDate, toDate, halfDay, reason, contact, days, status) VALUES (?,?,?,?,?,?,?,?,'Pending')`,
     [userId, leaveType, fromDate, toDate, halfDay ? 1 : 0, reason, contact, days],
-    (err, result) => {
+    async (err, result) => {
       if (err) return res.status(500).json({ message: err.message });
+
+      // Notify all admins about new leave request
+      db.query('SELECT u.firstName, u.lastName FROM users WHERE id=?', [userId], async (err2, users) => {
+        if (!err2 && users.length > 0) {
+          const name = `${users[0].firstName} ${users[0].lastName}`.trim();
+          db.query('SELECT fcm_token FROM users WHERE role="admin" AND fcm_token IS NOT NULL', async (err3, admins) => {
+            if (!err3) {
+              for (const a of admins) {
+                await sendToToken(a.fcm_token, '📋 New Leave Request', `${name} has submitted a ${leaveType} request.`);
+              }
+            }
+          });
+        }
+      });
+
       res.status(201).json({ message: 'Leave applied', leaveId: result.insertId });
     }
   );
 });
 
-// Get leaves for a specific user
 app.get('/leave/user/:userId', (req, res) => {
-  const userId = parseInt(req.params.userId);
-
-  console.log("➡️ /leave/user called with:", userId);
-
-  // 🛑 guard against bad input
-  if (!userId || isNaN(userId)) {
-    console.log("❌ Invalid userId");
-    return res.status(400).json({ message: 'Invalid userId' });
-  }
-
-  db.query(
-    'SELECT * FROM leaves WHERE userId=? ORDER BY createdAt DESC',
-    [userId],
-    (err, result) => {
-      if (err) {
-        console.log("❌ DB ERROR:", err);
-        return res.status(500).json({ message: err.message });
-      }
-
-      console.log("✅ Leaves found:", result.length);
-      res.json(result);
-    }
-  );
-});
-
-// Get ALL leaves (admin) — includes user info
-app.get('/leave/all', (req, res) => {
-  db.query(
-    `SELECT l.*, u.firstName, u.lastName, u.employeeCode, u.email
-     FROM leaves l
-     JOIN users u ON l.userId = u.id
-     ORDER BY l.createdAt DESC`,
-    (err, result) => {
-      if (err) return res.status(500).json({ message: err.message });
-      res.json(result);
-    }
-  );
-});
-
-// Approve or reject a leave (admin) — triggers FCM notification
-app.put('/leave/:leaveId/status', async (req, res) => {
-  const { leaveId } = req.params;
-  const { status, adminId } = req.body;
-
-  // check role
-  db.query('SELECT role FROM users WHERE id=?', [adminId], (err, result) => {
+  db.query('SELECT * FROM leaves WHERE userId=? ORDER BY createdAt DESC', [req.params.userId], (err, result) => {
     if (err) return res.status(500).json({ message: err.message });
-
-    if (result.length === 0 || result[0].role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-
-    // update leave
-    db.query('UPDATE leaves SET status=? WHERE id=?', [status, leaveId], async (err) => {
-      if (err) return res.status(500).json({ message: err.message });
-
-      // notification
-      db.query(
-        `SELECT u.fcm_token, u.firstName, l.leaveType, l.fromDate, l.toDate
-         FROM leaves l 
-         JOIN users u ON l.userId=u.id 
-         WHERE l.id=?`,
-        [leaveId],
-        async (err2, rows) => {
-          if (!err2 && rows.length > 0) {
-            const { fcm_token, firstName, leaveType, fromDate, toDate } = rows[0];
-
-            const from = new Date(fromDate).toDateString();
-            const to = new Date(toDate).toDateString();
-
-            const title = status === 'Approved' ? '✅ Leave Approved' : '❌ Leave Rejected';
-            const body =
-              status === 'Approved'
-                ? `Hi ${firstName}, your ${leaveType} (${from} – ${to}) has been approved.`
-                : `Hi ${firstName}, your ${leaveType} (${from} – ${to}) has been rejected.`;
-
-            await sendToToken(fcm_token, title, body);
-          }
-
-          res.json({ message: `Leave ${status}` });
-        }
-      );
-    });
+    res.json(result);
   });
 });
 
-// Get pending leave count (admin badge)
+app.get('/leave/all', (req, res) => {
+  db.query(
+    `SELECT l.*, u.firstName, u.lastName, u.employeeCode, u.email
+     FROM leaves l JOIN users u ON l.userId = u.id ORDER BY l.createdAt DESC`,
+    (err, result) => {
+      if (err) return res.status(500).json({ message: err.message });
+      res.json(result);
+    }
+  );
+});
+
+app.put('/leave/:leaveId/status', async (req, res) => {
+  const { leaveId } = req.params;
+  const { status } = req.body;
+  db.query('UPDATE leaves SET status=? WHERE id=?', [status, leaveId], async (err) => {
+    if (err) return res.status(500).json({ message: err.message });
+    db.query(
+      `SELECT u.fcm_token, u.firstName, l.leaveType, l.fromDate, l.toDate
+       FROM leaves l JOIN users u ON l.userId=u.id WHERE l.id=?`,
+      [leaveId],
+      async (err2, rows) => {
+        if (!err2 && rows.length > 0) {
+          const { fcm_token, firstName, leaveType, fromDate, toDate } = rows[0];
+          const from = new Date(fromDate).toDateString();
+          const to = new Date(toDate).toDateString();
+          const title = status === 'Approved' ? '✅ Leave Approved' : '❌ Leave Rejected';
+          const body = status === 'Approved'
+            ? `Hi ${firstName}, your ${leaveType} (${from} – ${to}) has been approved.`
+            : `Hi ${firstName}, your ${leaveType} (${from} – ${to}) has been rejected.`;
+          await sendToToken(fcm_token, title, body);
+        }
+        res.json({ message: `Leave ${status}` });
+      }
+    );
+  });
+});
+
 app.get('/leave/pending-count', (req, res) => {
   db.query("SELECT COUNT(*) AS count FROM leaves WHERE status='Pending'", (err, result) => {
     if (err) return res.status(500).json({ message: err.message });
@@ -254,17 +360,4 @@ app.get('/leave/pending-count', (req, res) => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  START
-// ═══════════════════════════════════════════════════════════════════════════
-app.listen(process.env.PORT || 3000, () => {
-  console.log(`Server running on port ${process.env.PORT || 3000}`);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('🔥 Uncaught Exception:', err);
-});
-
-process.on('unhandledRejection', (err) => {
-  console.error('🔥 Unhandled Rejection:', err);
-});
+app.listen(process.env.PORT || 3000, () => console.log(`Server running on port ${process.env.PORT || 3000}`));
