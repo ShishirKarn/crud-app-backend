@@ -33,13 +33,15 @@ router.post('/upload-profile', upload.single('image'), async (req, res) => {
 // this is for saving the image url to database
 router.post('/save-profile-image', async (req, res) => {
   const { userId, imageUrl } = req.body;
-
+try{
   await db.query(
     'UPDATE users SET profile_image = ? WHERE id = ?',
     [imageUrl, userId]
   );
-
-  res.json({ success: true });
+  res.json({ success: true });}
+  catch(e){
+    res.status(500).json({ message: e.message });
+  }
 });
 
 // cloudinary use for camera and media access
@@ -57,8 +59,8 @@ admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 // ── Nodemailer (Gmail) ───────────────────────────────────────────────────────
 const mailer = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
+  port: 587,
+  secure: false,
   family: 4,
   auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
 });
