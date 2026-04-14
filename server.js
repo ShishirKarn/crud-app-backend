@@ -245,7 +245,7 @@ app.post('/reset-password', (req, res) => {
 app.post('/register', (req, res) => {
   const data = req.body;
   if (!data.role) data.role = 'user';
-  data.isVerified = 0; // require email verification
+  data.isVerified = 1; // require email verification
 
   db.query('INSERT INTO users SET ?', data, (err) => {
     if (err) {
