@@ -5,6 +5,7 @@ const admin = require('firebase-admin');
 const cron = require('node-cron');
 const nodemailer = require('nodemailer');
 require('dotenv').config();
+import { Resend } from 'resend';
 
 const app = express();
 app.use(cors());
@@ -18,9 +19,9 @@ admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 // ── Nodemailer (Gmail) ───────────────────────────────────────────────────────
 const mailer = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port:465,
-  secure:true,
-  family:4,
+  port: 465,
+  secure: true,
+  family: 4,
   auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
 });
 
@@ -41,39 +42,37 @@ function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+// email send
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 async function sendOtpEmail(email, otp, type) {
   const isReset = type === 'forgot_password';
-  const subject = isReset ? 'WorkSpace — Password Reset OTP' : 'WorkSpace — Verify Your Email';
-  const heading = isReset ? 'Reset Your Password' : 'Verify Your Email';
-  const subtext = isReset
+
+  const subject = isReset
+    ? 'WorkSpace — Password Reset OTP'
+    : 'WorkSpace — Verify Your Email';
+
+  const message = isReset
     ? 'Use this OTP to reset your password.'
     : 'Use this OTP to verify your email address.';
 
-  await mailer.sendMail({
-    from: `"WorkSpace" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject,
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#1A1A24;border-radius:16px;border:1px solid #2A2A38">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:24px">
-          <div style="width:36px;height:36px;background:#33E8C97A;border-radius:10px;display:flex;align-items:center;justify-content:center">
-            <span style="font-size:18px">⚡</span>
-          </div>
-          <span style="color:#E8C97A;font-size:18px;font-weight:800;letter-spacing:-0.3px">WorkSpace</span>
+  try {
+    await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: email,
+      subject: subject,
+      html: `
+        <div style="font-family: Arial; padding: 20px;">
+          <h2>${subject}</h2>
+          <p>${message}</p>
+          <h1 style="letter-spacing: 3px;">${otp}</h1>
         </div>
-        <h2 style="color:#F0EDE6;font-size:22px;font-weight:700;margin:0 0 8px">${heading}</h2>
-        <p style="color:#6B6880;font-size:14px;margin:0 0 28px">${subtext}</p>
-        <div style="background:#111118;border:1px solid #2A2A38;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px">
-          <p style="color:#6B6880;font-size:12px;margin:0 0 10px;letter-spacing:1px;text-transform:uppercase">Your OTP</p>
-          <span style="color:#E8C97A;font-size:40px;font-weight:900;letter-spacing:12px">${otp}</span>
-        </div>
-        <p style="color:#6B6880;font-size:12px;text-align:center;margin:0">This code expires in <strong style="color:#F0EDE6">10 minutes</strong>. Do not share it with anyone.</p>
-        <div style="border-top:1px solid #2A2A38;margin-top:24px;padding-top:16px;text-align:center">
-          <span style="color:#2A2A38;font-size:11px">© ${new Date().getFullYear()} WorkSpace</span>
-        </div>
-      </div>
-    `,
-  });
+      `,
+    });
+  } catch (e) {
+    console.error('Email error:', e.message);
+    throw e;
+  }
 }
 
 // ── Cron Jobs ────────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@
     "firebase-admin": "^13.7.0",
     "mysql2": "^3.20.0",
     "node-cron": "^4.2.1",
-    "nodemailer": "^8.0.5"
+    "nodemailer": "^8.0.5",
+    "resend": "^6.11.0"
   }
 }
