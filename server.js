@@ -25,7 +25,8 @@ router.post('/upload-profile', upload.single('image'), async (req, res) => {
       imageUrl: result.secure_url,
     });
   } catch (err) {
-    res.status(500).json({ error: 'Upload failed' });
+    console.log("caloudinary error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
