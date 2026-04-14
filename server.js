@@ -5,7 +5,7 @@ const admin = require('firebase-admin');
 const cron = require('node-cron');
 const nodemailer = require('nodemailer');
 require('dotenv').config();
-import { Resend } from 'resend';
+const { Resend } = require('resend');
 
 const app = express();
 app.use(cors());
