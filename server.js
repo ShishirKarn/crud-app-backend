@@ -83,35 +83,36 @@ function generateOtp() {
 // email send
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// Replace your sendOtpEmail function with this:
 async function sendOtpEmail(email, otp, type) {
   const isReset = type === 'forgot_password';
+  const subject = isReset ? 'WorkSpace — Password Reset OTP' : 'WorkSpace — Verify Your Email';
+  const message = isReset ? 'Use this OTP to reset your password.' : 'Use this OTP to verify your email address.';
 
-  const subject = isReset
-    ? 'WorkSpace — Password Reset OTP'
-    : 'WorkSpace — Verify Your Email';
-
-  const message = isReset
-    ? 'Use this OTP to reset your password.'
-    : 'Use this OTP to verify your email address.';
-
-  try {
-    await resend.emails.send({
-      from: 'onboarding@resend.dev',
-      to: email,
-      subject: subject,
-      html: `
-        <div style="font-family: Arial; padding: 20px;">
-          <h2>${subject}</h2>
-          <p>${message}</p>
-          <h1 style="letter-spacing: 3px;">${otp}</h1>
-        </div>
-      `,
-    });
-  } catch (e) {
-    console.error('Email error:', e.message);
-    throw e;
-  }
+  await mailer.sendMail({
+    from: `"WorkSpace" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject,
+    html: `
+      <div style="font-family: Arial; padding: 20px; background: #0a0a0f; color: #fff; border-radius: 12px;">
+        <h2 style="color: #E8C97A;">${subject}</h2>
+        <p style="color: #aaa;">${message}</p>
+        <div style="font-size: 40px; font-weight: 800; letter-spacing: 8px; color: #E8C97A; margin: 20px 0;">${otp}</div>
+        <p style="color: #666; font-size: 12px;">This code expires in 10 minutes.</p>
+      </div>
+    `,
+  });
 }
+
+// test function to test if email works on railway
+app.get('/test-email', async (req, res) => {
+  try {
+    await sendOtpEmail('your@email.com', '123456', 'verify_email');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ── Cron Jobs ────────────────────────────────────────────────────────────────
 cron.schedule('0 9 * * *', () => {
