@@ -6,10 +6,47 @@ const cron = require('node-cron');
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 const { Resend } = require('resend');
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
+const router = express.Router();
+const upload = multer({ dest: 'uploads/' });
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(router);
+
+// this is for creating upload route for images used
+router.post('/upload-profile', upload.single('image'), async (req, res) => {
+  try {
+    const result = await cloudinary.uploader.upload(req.file.path);
+
+    res.json({
+      imageUrl: result.secure_url,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+// this is for saving the image url to database
+router.post('/save-profile-image', async (req, res) => {
+  const { userId, imageUrl } = req.body;
+
+  await db.query(
+    'UPDATE users SET profile_image = ? WHERE id = ?',
+    [imageUrl, userId]
+  );
+
+  res.json({ success: true });
+});
+
+// cloudinary use for camera and media access
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+});
 
 // ── Firebase ────────────────────────────────────────────────────────────────
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
