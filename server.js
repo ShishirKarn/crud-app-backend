@@ -440,18 +440,29 @@ app.get('/consumer/:id', (req, res) => {
 
 app.put('/consumer/:id', (req, res) => {
   const {
-    firstName, middleName, lastName, address, connectedLoad,
-    phase, countryCode, phoneNumber, email, dateOfBirth,
-    gender, kNumber, connectionDate, profileImage
+    firstName, middleName, lastName,
+    guardianRelation, guardianName,
+    addressLine1, addressLine2, tehsil, city, state, country, pincode,
+    connectedLoad, phase, countryCode, phoneNumber,
+    email, dateOfBirth, gender, kNumber, connectionDate, profileImage
   } = req.body;
 
-  const {id}=req.params;
-
   db.query(
-    `UPDATE consumers SET firstName=?,middleName=?,lastName=?,address=?,connectedLoad=?,
-     phase=?,countryCode=?,phoneNumber=?,email=?,dateOfBirth=?,gender=?,kNumber=?,connectionDate=?, profileImage=? WHERE id=?`,
-    [firstName, middleName, lastName, address, connectedLoad, phase,
-     countryCode, phoneNumber, email, dateOfBirth, gender, kNumber, connectionDate, profileImage, req.params.id],
+    `UPDATE consumers SET
+      firstName=?, middleName=?, lastName=?,
+      guardianRelation=?, guardianName=?,
+      addressLine1=?, addressLine2=?, tehsil=?, city=?, state=?, country=?, pincode=?,
+      connectedLoad=?, phase=?, countryCode=?, phoneNumber=?,
+      email=?, dateOfBirth=?, gender=?, kNumber=?, connectionDate=?, profileImage=?
+     WHERE id=?`,
+    [
+      firstName, middleName ?? null, lastName,
+      guardianRelation, guardianName,
+      addressLine1, addressLine2 ?? null, tehsil ?? null, city, state, country, pincode,
+      connectedLoad, phase, countryCode, phoneNumber,
+      email ?? null, dateOfBirth ?? null, gender ?? null, kNumber, connectionDate ?? null, profileImage ?? null,
+      req.params.id
+    ],
     (err) => {
       if (err) {
         if (err.code === 'ER_DUP_ENTRY')
