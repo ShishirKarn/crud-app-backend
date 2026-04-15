@@ -442,13 +442,16 @@ app.put('/consumer/:id', (req, res) => {
   const {
     firstName, middleName, lastName, address, connectedLoad,
     phase, countryCode, phoneNumber, email, dateOfBirth,
-    gender, kNumber, connectionDate
+    gender, kNumber, connectionDate, profileImage
   } = req.body;
+
+  const {id}=req.params;
+
   db.query(
     `UPDATE consumers SET firstName=?,middleName=?,lastName=?,address=?,connectedLoad=?,
-     phase=?,countryCode=?,phoneNumber=?,email=?,dateOfBirth=?,gender=?,kNumber=?,connectionDate=? WHERE id=?`,
+     phase=?,countryCode=?,phoneNumber=?,email=?,dateOfBirth=?,gender=?,kNumber=?,connectionDate=?, profileImage=? WHERE id=?`,
     [firstName, middleName, lastName, address, connectedLoad, phase,
-     countryCode, phoneNumber, email, dateOfBirth, gender, kNumber, connectionDate, req.params.id],
+     countryCode, phoneNumber, email, dateOfBirth, gender, kNumber, connectionDate, profileImage, req.params.id],
     (err) => {
       if (err) {
         if (err.code === 'ER_DUP_ENTRY')
