@@ -406,4 +406,65 @@ app.get('/leave/pending-count', (req, res) => {
   });
 });
 
+
+//  CONSUMERS
+app.post('/consumer', (req, res) => {
+  const data = req.body;
+  db.query('INSERT INTO consumers SET ?', data, (err, result) => {
+    if (err) {
+      if (err.code === 'ER_DUP_ENTRY')
+        return res.status(409).json({ message: 'K Number already exists. It must be unique.' });
+      return res.status(500).json({ message: err.message });
+    }
+    res.status(201).json({ message: 'Consumer added', id: result.insertId });
+  });
+});
+
+app.get('/consumers', (req, res) => {
+  db.query(
+    'SELECT id, firstName, middleName, lastName, countryCode, phoneNumber, profileImage, kNumber, createdAt FROM consumers ORDER BY createdAt DESC',
+    (err, result) => {
+      if (err) return res.status(500).json({ message: err.message });
+      res.json(result);
+    }
+  );
+});
+
+app.get('/consumer/:id', (req, res) => {
+  db.query('SELECT * FROM consumers WHERE id=?', [req.params.id], (err, result) => {
+    if (err) return res.status(500).json({ message: err.message });
+    if (result.length === 0) return res.status(404).json({ message: 'Consumer not found' });
+    res.json(result[0]);
+  });
+});
+
+app.put('/consumer/:id', (req, res) => {
+  const {
+    firstName, middleName, lastName, address, connectedLoad,
+    phase, countryCode, phoneNumber, email, dateOfBirth,
+    gender, kNumber, connectionDate
+  } = req.body;
+  db.query(
+    `UPDATE consumers SET firstName=?,middleName=?,lastName=?,address=?,connectedLoad=?,
+     phase=?,countryCode=?,phoneNumber=?,email=?,dateOfBirth=?,gender=?,kNumber=?,connectionDate=? WHERE id=?`,
+    [firstName, middleName, lastName, address, connectedLoad, phase,
+     countryCode, phoneNumber, email, dateOfBirth, gender, kNumber, connectionDate, req.params.id],
+    (err) => {
+      if (err) {
+        if (err.code === 'ER_DUP_ENTRY')
+          return res.status(409).json({ message: 'K Number already exists. It must be unique.' });
+        return res.status(500).json({ message: err.message });
+      }
+      res.json({ message: 'Consumer updated successfully' });
+    }
+  );
+});
+
+app.delete('/consumer/:id', (req, res) => {
+  db.query('DELETE FROM consumers WHERE id=?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ message: err.message });
+    res.json({ message: 'Consumer deleted successfully' });
+  });
+});
+
 app.listen(process.env.PORT || 3000, () => console.log(`Server running on port ${process.env.PORT || 3000}`));
