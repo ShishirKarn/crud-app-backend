@@ -34,11 +34,14 @@ router.post('/upload-profile', upload.single('image'), async (req, res) => {
 router.post('/save-profile-image', async (req, res) => {
   const { userId, imageUrl } = req.body;
   try {
-    await db.query(
+    db.query(
       'UPDATE users SET profile_image = ? WHERE id = ?',
-      [imageUrl, userId]
+      [imageUrl, userId],
+      (err) => {
+        if (err) return res.status(500).json({ message: err.message });
+        res.json({ success: true });
+      }
     );
-    res.json({ success: true });
   }
   catch (e) {
     res.status(500).json({ message: e.message });
@@ -164,35 +167,46 @@ cron.schedule('0 17 * * 5', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Send OTP — type: 'verify_email' | 'forgot_password'
-app.post('/send-otp', async (req, res) => {
+app.post('/send-otp', (req, res) => {
   const { email, type } = req.body;
-  if (!email || !type) return res.status(400).json({ message: 'Email and type required' });
+  if (!email || !type)
+    return res.status(400).json({ message: 'Email and type required' });
 
-  // For forgot_password: check user exists
-  if (type === 'forgot_password') {
-    const [users] = await db.promise().query('SELECT id FROM users WHERE email=?', [email]).catch(() => [[]]);
-    if (!users || users.length === 0) return res.status(404).json({ message: 'No account found with this email' });
-  }
+  const proceed = () => {
+    const otp = generateOtp();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-  const otp = generateOtp();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    db.query('DELETE FROM otps WHERE email=? AND type=?', [email, type]);
 
-  // Delete old OTPs for this email+type
-  db.query('DELETE FROM otps WHERE email=? AND type=?', [email, type]);
+    db.query(
+      'INSERT INTO otps (email, otp, type, expiresAt) VALUES (?,?,?,?)',
+      [email, otp, type, expiresAt],
+      async (err) => {
+        if (err) return res.status(500).json({ message: err.message });
 
-  db.query('INSERT INTO otps (email, otp, type, expiresAt) VALUES (?,?,?,?)',
-    [email, otp, type, expiresAt],
-    async (err) => {
-      if (err) return res.status(500).json({ message: err.message });
-      try {
-        await sendOtpEmail(email, otp, type);
-        res.json({ message: 'OTP sent' });
-      } catch (e) {
-        console.log('Email error:', e.message);
-        res.status(500).json({ message: 'Failed to send email. Check EMAIL_USER/EMAIL_PASS in .env' });
+        try {
+          await sendOtpEmail(email, otp, type);
+          res.json({ message: 'OTP sent' });
+        } catch (e) {
+          res.status(500).json({ message: 'Failed to send email' });
+        }
       }
-    }
-  );
+    );
+  };
+
+  if (type === 'forgot_password') {
+    db.query('SELECT id FROM users WHERE email=?', [email], (err, users) => {
+      if (err) return res.status(500).json({ message: err.message });
+
+      if (!users || users.length === 0) {
+        return res.status(404).json({ message: 'No account found with this email' });
+      }
+
+      proceed(); // only continue if user exists
+    });
+  } else {
+    proceed();
+  }
 });
 
 // Verify OTP
